@@ -56,7 +56,12 @@ else
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<InterviewLoopDbContext>();
-    db.Database.Migrate();
+    // Migrate() isn't supported on non-relational providers (e.g. the InMemory
+    // provider tests swap in) - only real Postgres needs it.
+    if (db.Database.IsRelational())
+    {
+        db.Database.Migrate();
+    }
     SeedData.EnsureSeeded(db);
 }
 
@@ -78,3 +83,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// Exposes the top-level statements' generated Program class so WebApplicationFactory<Program>
+// can bootstrap this app in tests.
+public partial class Program;

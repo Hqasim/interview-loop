@@ -8,7 +8,7 @@ public class GeminiOptions
 {
     public const string SectionName = "Gemini";
     public string ApiKey { get; set; } = "";
-    public string Model { get; set; } = "gemini-2.5-flash";
+    public string Model { get; set; } = "gemini-3.6-flash";
 }
 
 public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Options.IOptions<GeminiOptions> options, ILogger<GeminiGradingService> logger) : IGradingService
@@ -49,19 +49,49 @@ public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Op
         {
             var errorBody = await response.Content.ReadAsStringAsync(ct);
             logger.LogError("Gemini API call failed with {StatusCode}: {Body}", response.StatusCode, errorBody);
-            throw new GradingException("The AI grading service is unavailable right now. Please try again shortly.");
+            throw new GradingException($"AI grading service error ({(int)response.StatusCode}): {ExtractUpstreamErrorMessage(errorBody)}");
         }
 
         var payload = await response.Content.ReadFromJsonAsync<GeminiResponse>(JsonOptions, ct)
             ?? throw new GradingException("Received an empty response from the AI grading service.");
 
-        var text = payload.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text
-            ?? throw new GradingException("The AI grading service returned no feedback.");
+        // "Thinking" models can emit reasoning as separate parts (marked "thought": true) before
+        // the actual answer part - skip those and concatenate whatever's left.
+        var text = string.Concat(
+            payload.Candidates?.FirstOrDefault()?.Content?.Parts?
+                .Where(p => !p.Thought && !string.IsNullOrEmpty(p.Text))
+                .Select(p => p.Text) ?? []
+        );
 
-        var feedback = JsonSerializer.Deserialize<AttemptFeedbackDto>(text, JsonOptions)
-            ?? throw new GradingException("Could not parse the AI grading response.");
+        if (string.IsNullOrWhiteSpace(text))
+            throw new GradingException("The AI grading service returned no feedback.");
 
-        return feedback;
+        try
+        {
+            return JsonSerializer.Deserialize<AttemptFeedbackDto>(text, JsonOptions)
+                ?? throw new GradingException("Could not parse the AI grading response.");
+        }
+        catch (JsonException ex)
+        {
+            logger.LogError(ex, "Could not parse Gemini's response body as feedback JSON: {Text}", text);
+            throw new GradingException("Could not parse the AI grading response.");
+        }
+    }
+
+    private static string ExtractUpstreamErrorMessage(string errorBody)
+    {
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<GeminiErrorEnvelope>(errorBody, JsonOptions);
+            if (!string.IsNullOrWhiteSpace(parsed?.Error?.Message))
+                return parsed.Error.Message;
+        }
+        catch (JsonException)
+        {
+            // fall through to raw body below
+        }
+
+        return errorBody.Length > 200 ? errorBody[..200] + "…" : errorBody;
     }
 
     private static readonly object FeedbackSchema = new
@@ -79,25 +109,31 @@ public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Op
         required = new[] { "score", "verdict", "correctnessNotes", "complexityNotes", "clarityNotes", "suggestions" }
     };
 
-    private record GeminiRequest(
+    internal record GeminiRequest(
         [property: JsonPropertyName("contents")] GeminiContent[] Contents,
         [property: JsonPropertyName("generationConfig")] GeminiGenerationConfig GenerationConfig
     );
 
-    private record GeminiContent(
+    internal record GeminiContent(
         [property: JsonPropertyName("role")] string Role,
         [property: JsonPropertyName("parts")] GeminiPart[] Parts
     );
 
-    private record GeminiPart([property: JsonPropertyName("text")] string Text);
+    internal record GeminiPart(
+        [property: JsonPropertyName("text")] string? Text,
+        [property: JsonPropertyName("thought"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Thought = false
+    );
 
-    private record GeminiGenerationConfig(
+    internal record GeminiGenerationConfig(
         [property: JsonPropertyName("responseMimeType")] string ResponseMimeType,
         [property: JsonPropertyName("responseSchema")] object ResponseSchema
     );
 
-    private record GeminiResponse([property: JsonPropertyName("candidates")] GeminiCandidate[]? Candidates);
-    private record GeminiCandidate([property: JsonPropertyName("content")] GeminiContent? Content);
+    internal record GeminiResponse([property: JsonPropertyName("candidates")] GeminiCandidate[]? Candidates);
+    internal record GeminiCandidate([property: JsonPropertyName("content")] GeminiContent? Content);
+
+    internal record GeminiErrorEnvelope([property: JsonPropertyName("error")] GeminiErrorDetail? Error);
+    internal record GeminiErrorDetail([property: JsonPropertyName("message")] string? Message);
 }
 
 public class GradingException(string message) : Exception(message);

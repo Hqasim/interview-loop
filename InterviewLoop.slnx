@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/backend/">
+    <Project Path="backend/InterviewLoop.Api.Tests/InterviewLoop.Api.Tests.csproj" />
     <Project Path="backend/InterviewLoop.Api/InterviewLoop.Api.csproj" />
   </Folder>
 </Solution>

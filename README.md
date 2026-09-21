@@ -12,9 +12,10 @@ Built as a portfolio project to demonstrate:
 ## Project structure
 
 ```
-backend/InterviewLoop.Api/   .NET 10 Web API (prompts, attempts, Gemini grading)
-frontend/                    Next.js app
-docker-compose.yml           Local PostgreSQL for development
+backend/InterviewLoop.Api/         .NET 10 Web API (prompts, attempts, Gemini grading)
+backend/InterviewLoop.Api.Tests/   xUnit tests (grading service + controllers)
+frontend/                          Next.js app
+docker-compose.yml                 Local PostgreSQL for development
 ```
 
 ## Running locally
@@ -52,6 +53,16 @@ npm run dev
 
 Runs on `http://localhost:3000` and expects the API at `http://localhost:5080/api`
 (configurable via `NEXT_PUBLIC_API_URL` in `frontend/.env.local`).
+
+## Running tests
+
+```bash
+dotnet test InterviewLoop.slnx
+```
+
+Covers the Gemini response parsing/error-handling (including "thinking" models that split
+reasoning and the answer into separate parts) and the Prompts/Attempts controllers end-to-end
+against an in-memory database, without needing Postgres or a real Gemini API key running.
 
 ## Deployment
 
