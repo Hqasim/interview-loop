@@ -39,31 +39,160 @@ You're doing this part yourself — create `github.com/Hqasim/interview-loop` an
    ```
    (Startup runs `db.Database.Migrate()` automatically — watch the log for `Applying migration '...InitialCreate'`.)
 
-## 4. Create an AWS account (free tier)
+## 4. Create an AWS account and an IAM user
 
-1. Sign up at [aws.amazon.com](https://aws.amazon.com) if you don't already have an account.
-2. Create an IAM user for yourself with programmatic access (don't use the root account for
-   day-to-day deploys), and install/configure the AWS CLI:
+**Why:** the backend runs on Lambda and the frontend on Amplify Hosting — both are AWS services,
+so everything from here on happens inside an AWS account. This section gets you from "no AWS
+account" to "a working, safe-to-use CLI login."
+
+### 4.1 Create the account
+
+1. Go to [aws.amazon.com](https://aws.amazon.com) → **Create an AWS Account**.
+2. You'll need an email, a phone number for verification, and — this catches people off guard —
+   **a credit/debit card**, even though everything we're doing stays in the free tier. AWS
+   requires a card on file for every account, free tier or not. Nothing is charged as long as
+   you stay under the free-tier limits described below.
+3. Pick the **Basic support plan (free)** when asked.
+
+### 4.2 Set a billing safety net (5 minutes, worth doing before anything else)
+
+Since a card is attached, it's worth a small trip-wire in case something unexpected happens
+(e.g. you accidentally leave a non-free-tier resource running):
+
+1. Console → search **"Budgets"** → **AWS Budgets** → **Create budget**.
+2. Choose **Zero spend budget** (alerts you the moment you're charged *anything* above $0) — or
+   a **Cost budget** set to $1/month if you'd rather set your own threshold.
+3. Add your email as an alert recipient.
+
+This is the single best guardrail for a $0-cost project: you'll get an email within a day if
+anything ever drifts off the free tier, instead of finding out a month later.
+
+### 4.3 Create an IAM user (don't use the root login day-to-day)
+
+The account's root login can do *anything*, including delete the account — AWS's own advice is
+to lock it away (enable MFA on it, then basically never use it again) and instead create a
+regular **IAM user** for yourself to work as.
+
+1. Console → **IAM** → **Users** → **Create user**.
+2. Name it something like `hamzah-cli`. You don't need console (password) access for this user —
+   just check **"Provide user access to the AWS Management Console"** if you'd also like to
+   browse the console logged in as this user (recommended, so you're never using root).
+3. **Attach permissions** — you have two reasonable options here:
+
+   | Option | What it is | Trade-off |
+   |---|---|---|
+   | **Quick path** | Attach the `AdministratorAccess` managed policy | Zero friction, works immediately for everything below. Fine for a solo personal AWS account with the billing alert from 4.2 as a safety net. Not what you'd do on a team/production account. |
+   | **Scoped path** (recommended if you want the practice) | Attach `AWSLambda_FullAccess` and `AdministratorAccess-Amplify` (both are AWS-provided managed policies — search for them by name in the console's policy picker) | Least-privilege, more portfolio-interview-worthy ("I scope IAM permissions"), but you may hit an `AccessDenied` error on some specific action later — if so, that error message names the exact missing permission and you add it then. |
+
+   Either is fine to start with; you can always tighten it later. If you pick the scoped path,
+   also add this **inline policy** to the user (IAM → Users → your user → **Add permissions** →
+   **Create inline policy** → JSON tab) — it's what lets you hand the Lambda function an
+   execution role in step 5, which the two managed policies above don't cover by themselves:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": "iam:PassRole",
+         "Resource": "arn:aws:iam::*:role/interview-loop-lambda-execution-role"
+       }
+     ]
+   }
+   ```
+4. **Create access key**: on the user's page → **Security credentials** tab → **Create access
+   key** → choose **Command Line Interface (CLI)** as the use case → create. You'll see an
+   **Access Key ID** and a **Secret Access Key** — the secret is shown **exactly once**. Copy
+   both somewhere safe now (a password manager, not a repo file).
+
+### 4.4 Install and configure the AWS CLI
+
+1. Install it: [AWS CLI install guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+   (Windows: download and run the MSI installer, or `winget install Amazon.AWSCLI`).
+2. Configure it with the keys from 4.3:
    ```bash
    aws configure
    ```
-3. Once `aws sts get-caller-identity` works from your machine, tell me — I can run the actual
-   `aws`/`dotnet lambda` deploy commands here rather than you copy-pasting them.
+   It asks four things:
+   - `AWS Access Key ID` → paste the Access Key ID
+   - `AWS Secret Access Key` → paste the Secret Access Key
+   - `Default region name` → use `us-east-1` (matches the region already set in
+     `backend/InterviewLoop.Api/aws-lambda-tools-defaults.json` — keeping everything in one
+     region avoids cross-region confusion and is required for a Lambda deploy to "just work"
+     with that file's defaults)
+   - `Default output format` → `json` (or leave blank)
+3. Verify it worked:
+   ```bash
+   aws sts get-caller-identity
+   ```
+   Expected output is a small JSON block with your `Account` number, and a `UserId`/`Arn` that
+   names the IAM user you just created (not `root`). If this fails, `aws configure` again and
+   double-check you copied the keys correctly (no extra whitespace).
+
+Once this returns cleanly, tell me — I can run the actual `aws`/`dotnet lambda` commands with
+you from here rather than you copy-pasting everything solo.
 
 ## 5. Deploy the backend to Lambda
 
-**Important checkpoint before this step:** this project currently targets **.NET 10**. AWS Lambda's
-managed .NET runtimes have historically lagged a bit behind each .NET release. Check
-[AWS's supported Lambda runtimes](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html)
-before deploying:
-- If a `dotnet10` (or newer) managed runtime is listed, update `function-runtime` in
-  `backend/InterviewLoop.Api/aws-lambda-tools-defaults.json` (currently a placeholder value of
-  `dotnet8`) and deploy via the zip-based path below.
-- If not yet available, tell me and we'll switch to a container-image deploy instead (using AWS's
-  `public.ecr.aws/lambda/dotnet` base image, which tends to pick up new .NET versions faster) —
-  it's a small code change, not a redesign.
+**What we're building:** the .NET API running as a Lambda function, reachable over plain HTTPS
+via a **Function URL** (a built-in Lambda feature — a public HTTPS endpoint with no API Gateway
+in front of it). We chose this specifically because Lambda's own free tier (1M requests +
+400,000 GB-seconds of compute, per month, **forever**, not a 12-month trial) covers this
+portfolio's traffic completely, and skipping API Gateway avoids that service's charges once *its*
+free tier expires after 12 months.
 
-Once the runtime is confirmed:
+### 5.1 Runtime compatibility checkpoint (read this before deploying)
+
+This is the one part of the whole deployment that isn't just "run a command" — it's worth
+understanding *why* it might not be a one-liner.
+
+The project targets **.NET 10**. AWS Lambda's *managed runtimes* (the `dotnet8`-style runtime
+identifiers you pick when deploying a plain .zip package) have historically lagged behind new
+.NET releases by a few months. A .zip deployment package built for net10.0 **will not run** on a
+Lambda managed runtime that only understands .NET 8 — the CLR versions aren't interchangeable.
+
+1. Check [AWS's supported Lambda runtimes page](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html)
+   for whether `dotnet10` (or newer) is listed. There's no clean CLI command that lists this
+   (`aws lambda list-runtimes` doesn't exist) — the docs page, or the runtime dropdown when
+   manually creating a function in the Lambda console, are the two ways to check.
+2. **If `dotnet10` is available:** update `"function-runtime"` in
+   `backend/InterviewLoop.Api/aws-lambda-tools-defaults.json` from its current placeholder value
+   (`dotnet8`) to `dotnet10`, and use the zip-based deploy in 5.2 below as-is.
+3. **If it isn't available yet**, you have three options — tell me which you'd like and I'll
+   help implement it (none of these are in the repo yet, so this is a small follow-up task, not
+   something to do silently):
+   - **Multi-target the project** to also build a `net8.0` output alongside `net10.0`, and deploy
+     that build to Lambda. Keeps the managed-runtime deploy path, adds a bit of csproj
+     complexity, and the deployed function technically runs on .NET 8 while local dev stays on
+     .NET 10.
+   - **Switch to a container-image deploy**, using AWS's `public.ecr.aws/lambda/dotnet:10` base
+     image, which bundles its own .NET 10 runtime inside the container — this sidesteps Lambda's
+     managed-runtime list entirely, so it's not blocked by what AWS has "officially" added yet.
+     It needs a `Dockerfile` and pushing the image to **ECR** (Elastic Container Registry).
+     ECR's free tier (500MB storage) is only free for 12 months, not forever — but a single
+     small ASP.NET Core container image is realistically a few hundred MB, so even after 12
+     months the storage cost is a few cents a month, not a real departure from "~$0."
+   - **Wait for AWS to add it** — Lambda .NET runtime support usually lands within a few months
+     of a .NET release, and `dotnet8` still works fine as an interim deploy target if you're
+     okay with option 1 in the meantime.
+
+### 5.2 Create the Lambda execution role
+
+Every Lambda function runs *as* an IAM role (separate from the IAM user you deploy with) — this
+is what lets the function write to CloudWatch Logs. Our function doesn't call any other AWS
+service (the database is Neon, the AI calls are to Google), so it only needs the bare minimum:
+
+1. Console → **IAM** → **Roles** → **Create role**.
+2. Trusted entity type: **AWS service**. Use case: **Lambda**.
+3. Permissions: attach the AWS managed policy **`AWSLambdaBasicExecutionRole`** (grants exactly
+   `logs:CreateLogGroup` / `CreateLogStream` / `PutLogEvents` — nothing more).
+4. Name it exactly `interview-loop-lambda-execution-role` (matches the inline policy you may
+   have added in step 4.3) and create it.
+5. Open the new role and copy its **ARN** (top of the page, looks like
+   `arn:aws:iam::123456789012:role/interview-loop-lambda-execution-role`) — you'll hand this to
+   the deploy tool in 5.3.
+
+### 5.3 Deploy the function
 
 ```bash
 dotnet tool install -g Amazon.Lambda.Tools
@@ -71,7 +200,26 @@ cd backend/InterviewLoop.Api
 dotnet lambda deploy-function
 ```
 
-Then create a Function URL for it (public, no IAM auth, since this is a public portfolio demo):
+This builds a .zip deployment package from the project and uploads it, creating (or updating) a
+Lambda function named `interview-loop-api` (from `aws-lambda-tools-defaults.json`). On the
+**first** deploy, if it doesn't already know which role to use, the CLI prompts you interactively
+— something like:
+
+```
+Select IAM Role that to provide AWS credentials to your code:
+1) *** Create new IAM Role ***
+2) interview-loop-lambda-execution-role
+...
+```
+
+Pick the role you created in 5.2 (option 2 in that example — the exact numbering depends on what
+else is in your account). If you'd rather skip the prompt on every future deploy, add
+`"function-role": "<the ARN from 5.2>"` to `aws-lambda-tools-defaults.json`.
+
+The command finishes with a summary showing the function's ARN. That means the code is deployed
+— it isn't reachable over HTTP yet, though, which is what the next step is for.
+
+### 5.4 Expose it over HTTPS with a Function URL
 
 ```bash
 aws lambda create-function-url-config \
@@ -86,31 +234,144 @@ aws lambda add-permission \
   --statement-id FunctionURLAllowPublicAccess
 ```
 
-Set the Lambda's environment variables (console or `aws lambda update-function-configuration
---environment`) to mirror what you tested locally in step 2 and 3:
+What each piece does:
+- `create-function-url-config --auth-type NONE`: creates the public HTTPS endpoint itself.
+  `NONE` means no AWS-level authentication — anyone with the URL can call it. That's intentional
+  for a public portfolio demo (recruiters need to hit it without credentials), and it's exactly
+  what the rate limiter we built earlier (`POST /api/attempts`, 1 request/3s per IP) is there
+  to protect against abuse of.
+- `add-permission ... InvokeFunctionUrl`: a commonly-missed second step — without this, the
+  Function URL returns `403 Forbidden` even with `auth-type NONE`, because Lambda's *resource
+  policy* (separate from the Function URL's auth type) still needs to explicitly allow the
+  public principal (`*`) to invoke it.
 
-- `ConnectionStrings__Postgres` = your Neon connection string
-- `Gemini__ApiKey` = your Gemini key
-- `Gemini__Model` = `gemini-3.5-flash-lite` (or whatever you tested with)
-- `Cors__AllowedOrigins__0` = your Amplify frontend URL (add this after step 6, once you know it)
+The first command's output includes a `FunctionUrl` field — that's your backend's public base
+URL, e.g. `https://abc123xyz.lambda-url.us-east-1.on.aws/`. Test it directly before touching the
+frontend:
+```bash
+curl https://<your-function-url>/api/prompts
+```
+You should get the same JSON array of 10 seeded prompts you saw locally.
+
+### 5.5 Set environment variables
+
+Console path: Lambda function → **Configuration** tab → **Environment variables** → **Edit**.
+CLI equivalent:
+```bash
+aws lambda update-function-configuration \
+  --function-name interview-loop-api \
+  --environment "Variables={ConnectionStrings__Postgres='<neon-connection-string>',Gemini__ApiKey='<your-gemini-key>',Gemini__Model='gemini-3.5-flash-lite',Cors__AllowedOrigins__0='<amplify-url-from-step-6>'}"
+```
+
+Why the double underscores (`__`) instead of `:`: ASP.NET Core's environment-variable
+configuration provider uses `__` as the section separator, because `:` isn't valid inside an
+environment variable name on most shells/OSes. `ConnectionStrings__Postgres` is the environment
+equivalent of `appsettings.json`'s `"ConnectionStrings": { "Postgres": "..." }`.
+
+- `ConnectionStrings__Postgres` — the same Neon connection string you already validated locally.
+- `Gemini__ApiKey` — same Gemini key.
+- `Gemini__Model` — `gemini-3.5-flash-lite`.
+- `Cors__AllowedOrigins__0` — you won't know this until step 6 is done; come back and set it
+  then (step 7 covers exactly this).
+
+Environment variable changes take effect on the *next* invocation automatically — no redeploy of
+the code package needed.
+
+### 5.6 Troubleshooting
+
+- **`Task timed out after 30.00 seconds`** in CloudWatch Logs — our Gemini grading service
+  retries transient errors with backoff (up to ~2.6s of delay across 2 retries) plus normal
+  model response time; 30s should be comfortable headroom, but if you see this, bump
+  `"function-timeout"` in `aws-lambda-tools-defaults.json` and redeploy.
+- **Logs**: Lambda console → your function → **Monitor** tab → **View CloudWatch logs**. This is
+  where every `logger.LogError(...)` call in the backend ends up — the same detail that shows up
+  in the `Details` field of an error response, plus anything that doesn't reach the HTTP
+  response at all (e.g. a cold-start failure).
+- **Cold starts**: the first request after a period of inactivity takes noticeably longer
+  (initializing the .NET runtime + EF Core + running `Database.Migrate()` against Neon). This is
+  normal for Lambda + a "sleeping" serverless database and not something to chase down.
 
 ## 6. Deploy the frontend to Amplify
 
-1. In the AWS Amplify console, connect your GitHub repo.
-2. When prompted, choose the monorepo option and set the app root to `frontend` (the repo's
-   `amplify.yml` already has the right build spec for this).
-3. Add an environment variable: `NEXT_PUBLIC_API_URL` = `<your Lambda Function URL>/api`.
-4. Deploy, then note the Amplify-provided URL (e.g. `https://main.xxxxx.amplifyapp.com`).
+**What we're building:** Amplify Hosting is AWS's managed build-and-host service for frontend
+frameworks — it watches your GitHub repo, runs the build (`amplify.yml`, already in this repo),
+and serves the result over HTTPS with a free `*.amplifyapp.com` subdomain. It supports Next.js's
+server-rendered routes (not just static export), which matters here since `/prompts/[id]` and
+`/history/[id]` are dynamic.
+
+1. Console → **Amplify** → **Create new app** (or **Host web app**).
+2. Choose **GitHub** as the source, and authorize AWS to access your GitHub account when
+   prompted — you can scope this to just the `interview-loop` repo during the GitHub
+   authorization step rather than granting access to all your repos.
+3. Select the `interview-loop` repo and the `master` branch.
+4. **This repo is a monorepo** (backend + frontend in one repo) — Amplify needs to know the
+   frontend lives in a subdirectory. When prompted, choose the **monorepo** option and set the
+   app root to `frontend`. If Amplify's build settings screen doesn't show it detecting
+   `amplify.yml` automatically, you can paste its contents directly into the build settings
+   editor on this screen (the file's already correct for this exact setup — see `amplify.yml` at
+   the repo root).
+5. **Environment variables** (same screen, or App settings → Environment variables afterward):
+   add `NEXT_PUBLIC_API_URL` = `<your Lambda Function URL from step 5.4>/api` (include the
+   trailing `/api` — that's the base path every API call in the frontend is built on top of).
+6. Review and deploy. Amplify runs through **Provision → Build → Deploy → Verify** — for a
+   Next.js app this size, expect roughly 3-5 minutes. Click into any failed stage to see its
+   full log if something goes wrong (most first-time failures are a missing environment variable
+   or a build command that doesn't match `amplify.yml`).
+7. Once it's green, Amplify gives you a URL like `https://master.d1a2b3c4d5e6f7.amplifyapp.com`
+   — that's your live frontend.
+
+A custom domain is possible later (Amplify → Domain management) but isn't required — the free
+`amplifyapp.com` subdomain is perfectly shareable with recruiters.
 
 ## 7. Close the loop on CORS
 
-Go back to the Lambda's environment variables and set `Cors__AllowedOrigins__0` to the Amplify
-URL from step 6, then redeploy/update the function config so the new env var takes effect.
+**Why this step exists:** the backend's CORS policy (`Program.cs`) only allows requests from
+origins explicitly listed in `Cors:AllowedOrigins` — this is what stops a random website from
+calling your API from a browser. Locally that's `http://localhost:3000`; in production it needs
+to be your real Amplify URL, which you only found out in step 6.
+
+Go back to the Lambda's environment variables (5.5) and set:
+```
+Cors__AllowedOrigins__0 = https://master.d1a2b3c4d5e6f7.amplifyapp.com
+```
+(your actual Amplify URL from step 6, no trailing slash). As in 5.5, this takes effect on the
+next invocation automatically — no code redeploy needed, just the environment variable update.
 
 ## 8. Smoke test
 
-Open the Amplify URL, solve a prompt, confirm you get real Gemini feedback (not demo mode), and
-check `/history` shows the attempt. That's the whole $0-cost pipeline validated end-to-end.
+Open the Amplify URL and walk through the full feature set we built:
+
+- [ ] Home page loads the 10 seeded prompts (confirms frontend → Lambda → Neon is wired end to
+      end).
+- [ ] Open a prompt, submit a solution, and get back **real** Gemini feedback — not the
+      "[Demo mode]" placeholder text (confirms the `Gemini__ApiKey` env var made it through).
+- [ ] Click **Reset** — the editor reverts to the starter code.
+- [ ] Click **Reformat** on a JS/TS prompt — Monaco reformats the code.
+- [ ] `/history` shows the attempt you just submitted, and clicking into it shows the full
+      code + feedback.
+- [ ] Submit twice in quick succession — the Submit button should disable itself for ~3s; if you
+      bypass that (e.g. via curl) you should get a clean `429` with a friendly message, not a
+      raw error dump.
+- [ ] Temporarily break something (e.g. stop the Lambda function, or submit with the network
+      tab throttled to "Offline") and confirm a toast appears bottom-right with a readable
+      message, not a blank screen or console-only error.
+
+That's the whole $0-cost pipeline validated end-to-end — this is the state you'd share with a
+recruiter.
+
+## 9. Tearing it down (if you ever want to)
+
+Since this is a portfolio project rather than something with ongoing users, it's fine to leave
+it running indefinitely (it's genuinely $0 at this traffic level) — but if you ever want to fully
+remove it:
+
+1. Amplify console → your app → **Actions** → **Delete app**.
+2. Lambda console → your function → **Actions** → **Delete function** (this also removes its
+   Function URL).
+3. IAM console → delete the `interview-loop-lambda-execution-role` role (Roles) and, if you're
+   done with AWS entirely, the IAM user you created in 4.3.
+4. Neon console → delete the project.
+5. [Google AI Studio](https://aistudio.google.com/) → revoke/delete the Gemini API key.
 
 ---
 
