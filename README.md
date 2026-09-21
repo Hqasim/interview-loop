@@ -53,8 +53,10 @@ npm run dev
 Runs on `http://localhost:3000` and expects the API at `http://localhost:5080/api`
 (configurable via `NEXT_PUBLIC_API_URL` in `frontend/.env.local`).
 
-## Deployment (planned)
+## Deployment
 
 Target is a $0-cost deployment: Next.js on AWS Amplify Hosting, the .NET API on AWS Lambda via
 a Function URL, and PostgreSQL on Neon's always-free tier — all within permanently-free usage
-tiers rather than a 12-month trial.
+tiers rather than a 12-month trial. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the step-by-step
+checklist (account setup steps only you can do, plus the exact commands to run once you have
+credentials).

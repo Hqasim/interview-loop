@@ -1,8 +1,15 @@
+using Amazon.Lambda.AspNetCoreServer.Hosting;
 using InterviewLoop.Api.Data;
 using InterviewLoop.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var isLambda = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AWS_LAMBDA_FUNCTION_NAME"));
+
+// No-ops outside Lambda. Lambda Function URLs use the same payload format as
+// API Gateway HTTP API v2, so HttpApi is the right event source for both.
+builder.Services.AddAWSLambdaHosting(LambdaEventSource.HttpApi);
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -61,7 +68,12 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("Frontend");
-app.UseHttpsRedirection();
+// Skip: Lambda Function URLs already terminate TLS in front of the function,
+// so redirecting inside the function would just loop.
+if (!isLambda)
+{
+    app.UseHttpsRedirection();
+}
 app.UseAuthorization();
 app.MapControllers();
 
