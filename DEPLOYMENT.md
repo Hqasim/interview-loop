@@ -77,29 +77,13 @@ regular **IAM user** for yourself to work as.
 2. Name it something like `hamzah-cli`. You don't need console (password) access for this user —
    just check **"Provide user access to the AWS Management Console"** if you'd also like to
    browse the console logged in as this user (recommended, so you're never using root).
-3. **Attach permissions** — you have two reasonable options here:
-
-   | Option | What it is | Trade-off |
-   |---|---|---|
-   | **Quick path** | Attach the `AdministratorAccess` managed policy | Zero friction, works immediately for everything below. Fine for a solo personal AWS account with the billing alert from 4.2 as a safety net. Not what you'd do on a team/production account. |
-   | **Scoped path** (recommended if you want the practice) | Attach `AWSLambda_FullAccess` and `AdministratorAccess-Amplify` (both are AWS-provided managed policies — search for them by name in the console's policy picker) | Least-privilege, more portfolio-interview-worthy ("I scope IAM permissions"), but you may hit an `AccessDenied` error on some specific action later — if so, that error message names the exact missing permission and you add it then. |
-
-   Either is fine to start with; you can always tighten it later. If you pick the scoped path,
-   also add this **inline policy** to the user (IAM → Users → your user → **Add permissions** →
-   **Create inline policy** → JSON tab) — it's what lets you hand the Lambda function an
-   execution role in step 5, which the two managed policies above don't cover by themselves:
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": "iam:PassRole",
-         "Resource": "arn:aws:iam::*:role/interview-loop-lambda-execution-role"
-       }
-     ]
-   }
-   ```
+3. **Attach permissions**: choose **"Attach policies directly"** and attach the
+   **`AdministratorAccess`** managed policy. That's it — one policy, no JSON to write. This is a
+   deliberate simplification for a solo personal AWS account: the billing alert from 4.2 is your
+   real safety net, and not having to debug an `AccessDenied` error mid-deploy is worth more
+   right now than fine-grained permissions. (If you ever want to lock this down later, the two
+   AWS-managed policies to look at are `AWSLambda_FullAccess` and `AdministratorAccess-Amplify`
+   — but that's an optional future cleanup, not something to figure out now.)
 4. **Create access key**: on the user's page → **Security credentials** tab → **Create access
    key** → choose **Command Line Interface (CLI)** as the use case → create. You'll see an
    **Access Key ID** and a **Secret Access Key** — the secret is shown **exactly once**. Copy
@@ -176,23 +160,7 @@ Lambda managed runtime that only understands .NET 8 — the CLR versions aren't 
      of a .NET release, and `dotnet8` still works fine as an interim deploy target if you're
      okay with option 1 in the meantime.
 
-### 5.2 Create the Lambda execution role
-
-Every Lambda function runs *as* an IAM role (separate from the IAM user you deploy with) — this
-is what lets the function write to CloudWatch Logs. Our function doesn't call any other AWS
-service (the database is Neon, the AI calls are to Google), so it only needs the bare minimum:
-
-1. Console → **IAM** → **Roles** → **Create role**.
-2. Trusted entity type: **AWS service**. Use case: **Lambda**.
-3. Permissions: attach the AWS managed policy **`AWSLambdaBasicExecutionRole`** (grants exactly
-   `logs:CreateLogGroup` / `CreateLogStream` / `PutLogEvents` — nothing more).
-4. Name it exactly `interview-loop-lambda-execution-role` (matches the inline policy you may
-   have added in step 4.3) and create it.
-5. Open the new role and copy its **ARN** (top of the page, looks like
-   `arn:aws:iam::123456789012:role/interview-loop-lambda-execution-role`) — you'll hand this to
-   the deploy tool in 5.3.
-
-### 5.3 Deploy the function
+### 5.2 Deploy the function
 
 ```bash
 dotnet tool install -g Amazon.Lambda.Tools
@@ -200,26 +168,31 @@ cd backend/InterviewLoop.Api
 dotnet lambda deploy-function
 ```
 
-This builds a .zip deployment package from the project and uploads it, creating (or updating) a
-Lambda function named `interview-loop-api` (from `aws-lambda-tools-defaults.json`). On the
-**first** deploy, if it doesn't already know which role to use, the CLI prompts you interactively
-— something like:
+This builds a .zip deployment package from the project, uploads it, and creates a Lambda
+function named `interview-loop-api` (from `aws-lambda-tools-defaults.json`). Every Lambda
+function also needs an **execution role** — a separate IAM role (not the IAM user you're deployed
+as) that lets the function write to CloudWatch Logs. You don't need to create this by hand: the
+CLI creates it for you interactively the first time you deploy. You'll see a prompt like:
 
 ```
 Select IAM Role that to provide AWS credentials to your code:
 1) *** Create new IAM Role ***
-2) interview-loop-lambda-execution-role
-...
+2) ...
 ```
 
-Pick the role you created in 5.2 (option 2 in that example — the exact numbering depends on what
-else is in your account). If you'd rather skip the prompt on every future deploy, add
-`"function-role": "<the ARN from 5.2>"` to `aws-lambda-tools-defaults.json`.
+1. Choose **`*** Create new IAM Role ***`**.
+2. It asks for a role name — type `interview-loop-lambda-role`.
+3. It then shows a searchable list of AWS managed policies to attach. Search for and select
+   **`AWSLambdaBasicExecutionRole`** — the only one this function needs (it grants exactly
+   `logs:CreateLogGroup` / `CreateLogStream` / `PutLogEvents`, since our function doesn't call
+   any other AWS service — the database is Neon, the AI calls are to Google).
+4. Confirm, and the deploy continues. Future deploys (`dotnet lambda deploy-function` again)
+   reuse the same role automatically without asking.
 
 The command finishes with a summary showing the function's ARN. That means the code is deployed
 — it isn't reachable over HTTP yet, though, which is what the next step is for.
 
-### 5.4 Expose it over HTTPS with a Function URL
+### 5.3 Expose it over HTTPS with a Function URL
 
 ```bash
 aws lambda create-function-url-config \
@@ -253,7 +226,7 @@ curl https://<your-function-url>/api/prompts
 ```
 You should get the same JSON array of 10 seeded prompts you saw locally.
 
-### 5.5 Set environment variables
+### 5.4 Set environment variables
 
 Console path: Lambda function → **Configuration** tab → **Environment variables** → **Edit**.
 CLI equivalent:
@@ -277,7 +250,7 @@ equivalent of `appsettings.json`'s `"ConnectionStrings": { "Postgres": "..." }`.
 Environment variable changes take effect on the *next* invocation automatically — no redeploy of
 the code package needed.
 
-### 5.6 Troubleshooting
+### 5.5 Troubleshooting
 
 - **`Task timed out after 30.00 seconds`** in CloudWatch Logs — our Gemini grading service
   retries transient errors with backoff (up to ~2.6s of delay across 2 retries) plus normal
@@ -311,7 +284,7 @@ server-rendered routes (not just static export), which matters here since `/prom
    editor on this screen (the file's already correct for this exact setup — see `amplify.yml` at
    the repo root).
 5. **Environment variables** (same screen, or App settings → Environment variables afterward):
-   add `NEXT_PUBLIC_API_URL` = `<your Lambda Function URL from step 5.4>/api` (include the
+   add `NEXT_PUBLIC_API_URL` = `<your Lambda Function URL from step 5.3>/api` (include the
    trailing `/api` — that's the base path every API call in the frontend is built on top of).
 6. Review and deploy. Amplify runs through **Provision → Build → Deploy → Verify** — for a
    Next.js app this size, expect roughly 3-5 minutes. Click into any failed stage to see its
@@ -330,11 +303,11 @@ origins explicitly listed in `Cors:AllowedOrigins` — this is what stops a rand
 calling your API from a browser. Locally that's `http://localhost:3000`; in production it needs
 to be your real Amplify URL, which you only found out in step 6.
 
-Go back to the Lambda's environment variables (5.5) and set:
+Go back to the Lambda's environment variables (5.4) and set:
 ```
 Cors__AllowedOrigins__0 = https://master.d1a2b3c4d5e6f7.amplifyapp.com
 ```
-(your actual Amplify URL from step 6, no trailing slash). As in 5.5, this takes effect on the
+(your actual Amplify URL from step 6, no trailing slash). As in 5.4, this takes effect on the
 next invocation automatically — no code redeploy needed, just the environment variable update.
 
 ## 8. Smoke test
@@ -368,8 +341,8 @@ remove it:
 1. Amplify console → your app → **Actions** → **Delete app**.
 2. Lambda console → your function → **Actions** → **Delete function** (this also removes its
    Function URL).
-3. IAM console → delete the `interview-loop-lambda-execution-role` role (Roles) and, if you're
-   done with AWS entirely, the IAM user you created in 4.3.
+3. IAM console → delete the `interview-loop-lambda-role` role (Roles) and, if you're done with
+   AWS entirely, the IAM user you created in 4.3.
 4. Neon console → delete the project.
 5. [Google AI Studio](https://aistudio.google.com/) → revoke/delete the Gemini API key.
 
