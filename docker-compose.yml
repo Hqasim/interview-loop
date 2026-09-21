@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: interviewloop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: interviewloop
+      POSTGRES_USER: interviewloop
+      POSTGRES_PASSWORD: interviewloop
+    ports:
+      - "5432:5432"
+    volumes:
+      - interviewloop-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  interviewloop-postgres-data:

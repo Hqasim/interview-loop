@@ -1,0 +1,12 @@
+# .NET
+backend/**/bin/
+backend/**/obj/
+*.user
+
+# dev run logs (local scratch, not part of the app)
+backend-run.log
+frontend-run.log
+
+# OS
+.DS_Store
+Thumbs.db
