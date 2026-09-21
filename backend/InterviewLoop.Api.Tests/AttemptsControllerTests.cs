@@ -41,7 +41,7 @@ public class AttemptsControllerTests
     }
 
     [Fact]
-    public async Task Submit_EmptyCode_ReturnsBadRequest()
+    public async Task Submit_EmptyCode_ReturnsBadRequestWithMessage()
     {
         await using var factory = new ApiTestFactory();
         using var client = factory.CreateClient();
@@ -49,6 +49,27 @@ public class AttemptsControllerTests
         var response = await client.PostAsJsonAsync("/api/attempts", ValidRequest() with { Code = "   " });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ErrorResponseDto>();
+        Assert.False(string.IsNullOrWhiteSpace(body?.Message));
+    }
+
+    [Fact]
+    public async Task Submit_SecondRequestWithinThrottleWindow_ReturnsTooManyRequests()
+    {
+        // Server-side enforcement of "don't spam the grading endpoint" - this is the
+        // authoritative check (a frontend-only cooldown can be bypassed by calling the API
+        // directly), so it needs its own regression test independent of the UI.
+        await using var factory = new ApiTestFactory();
+        using var client = factory.CreateClient();
+
+        var first = await client.PostAsJsonAsync("/api/attempts", ValidRequest());
+        var second = await client.PostAsJsonAsync("/api/attempts", ValidRequest());
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
+
+        var body = await second.Content.ReadFromJsonAsync<ErrorResponseDto>();
+        Assert.False(string.IsNullOrWhiteSpace(body?.Message));
     }
 
     [Fact]

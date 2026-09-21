@@ -9,7 +9,7 @@ public class GeminiOptions
 {
     public const string SectionName = "Gemini";
     public string ApiKey { get; set; } = "";
-    public string Model { get; set; } = "gemini-3.6-flash";
+    public string Model { get; set; } = "gemini-3.5-flash-lite";
 }
 
 public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Options.IOptions<GeminiOptions> options, ILogger<GeminiGradingService> logger) : IGradingService
@@ -50,7 +50,21 @@ public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Op
         {
             var errorBody = await response.Content.ReadAsStringAsync(ct);
             logger.LogError("Gemini API call failed with {StatusCode}: {Body}", response.StatusCode, errorBody);
-            throw new GradingException($"AI grading service error ({(int)response.StatusCode}): {ExtractUpstreamErrorMessage(errorBody)}");
+
+            // The raw upstream text (quota/billing paragraphs, etc.) is only useful for us - it
+            // goes in the exception's technical Message (logged, and available to API clients
+            // that want it) while end users get a short, specific, actionable message instead.
+            var technicalMessage = $"AI grading service error ({(int)response.StatusCode}): {ExtractUpstreamErrorMessage(errorBody)}";
+            var userMessage = response.StatusCode switch
+            {
+                HttpStatusCode.TooManyRequests =>
+                    $"Gemini model \"{_options.Model}\" has hit its rate limit. Please try again later.",
+                HttpStatusCode.ServiceUnavailable =>
+                    "The AI grading service is temporarily overloaded. Please try again in a moment.",
+                _ => "The AI grading service is temporarily unavailable. Please try again later."
+            };
+
+            throw new GradingException(technicalMessage, userMessage);
         }
 
         var payload = await response.Content.ReadFromJsonAsync<GeminiResponse>(JsonOptions, ct)
@@ -161,4 +175,13 @@ public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Op
     internal record GeminiErrorDetail([property: JsonPropertyName("message")] string? Message);
 }
 
-public class GradingException(string message) : Exception(message);
+/// <summary>
+/// <see cref="Exception.Message"/> carries the full technical detail (logged server-side, and
+/// available to API clients via the error response's Details field). <see cref="UserMessage"/>
+/// is the short, safe text shown to end users - defaults to the technical message when the two
+/// don't need to differ (e.g. "could not parse the response").
+/// </summary>
+public class GradingException(string message, string? userMessage = null) : Exception(message)
+{
+    public string UserMessage { get; } = userMessage ?? message;
+}

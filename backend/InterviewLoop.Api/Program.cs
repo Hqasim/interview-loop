@@ -42,6 +42,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod());
 });
 
+builder.Services.AddGradingRateLimiter();
+
 var app = builder.Build();
 
 if (!string.IsNullOrWhiteSpace(geminiApiKey))
@@ -73,6 +75,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("Frontend");
+app.UseRateLimiter();
 // Skip: Lambda Function URLs already terminate TLS in front of the function,
 // so redirecting inside the function would just loop.
 if (!isLambda)

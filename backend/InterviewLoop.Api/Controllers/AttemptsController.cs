@@ -3,6 +3,7 @@ using InterviewLoop.Api.Dtos;
 using InterviewLoop.Api.Models;
 using InterviewLoop.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace InterviewLoop.Api.Controllers;
@@ -12,13 +13,14 @@ namespace InterviewLoop.Api.Controllers;
 public class AttemptsController(InterviewLoopDbContext db, IGradingService gradingService, ILogger<AttemptsController> logger) : ControllerBase
 {
     [HttpPost]
+    [EnableRateLimiting(RateLimiting.GradingPolicyName)]
     public async Task<ActionResult<AttemptDetailDto>> Submit(SubmitAttemptRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Code))
-            return BadRequest("Code cannot be empty.");
+            return BadRequest(new ErrorResponseDto("Code cannot be empty."));
 
         var prompt = await db.Prompts.FindAsync([request.PromptId], ct);
-        if (prompt is null) return NotFound($"Prompt {request.PromptId} not found.");
+        if (prompt is null) return NotFound(new ErrorResponseDto($"Prompt {request.PromptId} not found."));
 
         AttemptFeedbackDto feedback;
         try
@@ -28,7 +30,7 @@ public class AttemptsController(InterviewLoopDbContext db, IGradingService gradi
         catch (GradingException ex)
         {
             logger.LogError(ex, "Grading failed for prompt {PromptId}", request.PromptId);
-            return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
+            return StatusCode(StatusCodes.Status502BadGateway, new ErrorResponseDto(ex.UserMessage, ex.Message));
         }
 
         var attempt = new Attempt

@@ -11,13 +11,13 @@ namespace InterviewLoop.Api.Tests.Services;
 
 public class GeminiGradingServiceTests
 {
-    private static GeminiGradingService CreateService(Func<HttpRequestMessage, HttpResponseMessage> respond)
+    private static GeminiGradingService CreateService(Func<HttpRequestMessage, HttpResponseMessage> respond, string model = "gemini-3.5-flash-lite")
     {
         var httpClient = new HttpClient(new FakeHttpMessageHandler(respond))
         {
             BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/")
         };
-        var options = Options.Create(new GeminiOptions { ApiKey = "test-key", Model = "gemini-3.6-flash" });
+        var options = Options.Create(new GeminiOptions { ApiKey = "test-key", Model = model });
         return new GeminiGradingService(httpClient, options, NullLogger<GeminiGradingService>.Instance);
     }
 
@@ -75,10 +75,12 @@ public class GeminiGradingServiceTests
     }
 
     [Fact]
-    public async Task GradeAsync_NonSuccessStatus_ThrowsWithUpstreamMessage()
+    public async Task GradeAsync_NonSuccessStatus_TechnicalMessageHasDetailUserMessageIsGeneric()
     {
         // Mirrors the real failure mode that caused the 502s in production: Gemini returns
-        // 404 with an error envelope when a model name is invalid/deprecated.
+        // 404 with an error envelope when a model name is invalid/deprecated. The raw upstream
+        // text belongs in the technical Message (for logs); end users get a generic message -
+        // "model not found" is not actionable/meaningful to them.
         var errorBody = new
         {
             error = new
@@ -94,6 +96,29 @@ public class GeminiGradingServiceTests
             () => service.GradeAsync("Two Sum", "desc", "code", "javascript"));
 
         Assert.Contains("no longer available", ex.Message);
+        Assert.DoesNotContain("no longer available", ex.UserMessage);
+        Assert.Equal("The AI grading service is temporarily unavailable. Please try again later.", ex.UserMessage);
+    }
+
+    [Fact]
+    public async Task GradeAsync_RateLimited_UserMessageNamesModelWithoutLeakingRawQuotaText()
+    {
+        // This is the exact scenario reported against the live API: Gemini's 429 quota response
+        // is a multi-paragraph billing/quota dump that must never reach the end user directly.
+        var rawQuotaText = "You exceeded your current quota, please check your plan and billing details. " +
+            "Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, " +
+            "limit: 20, model: gemini-3.5-flash-lite\nPlease retry in 10.57s.";
+        var errorBody = new { error = new { code = 429, message = rawQuotaText, status = "RESOURCE_EXHAUSTED" } };
+        var service = CreateService(_ => JsonResponse(HttpStatusCode.TooManyRequests, errorBody), model: "gemini-3.5-flash-lite");
+
+        var ex = await Assert.ThrowsAsync<GradingException>(
+            () => service.GradeAsync("Two Sum", "desc", "code", "javascript"));
+
+        Assert.Contains(rawQuotaText, ex.Message);
+        Assert.DoesNotContain("quota", ex.UserMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("billing", ex.UserMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("gemini-3.5-flash-lite", ex.UserMessage);
+        Assert.Contains("rate limit", ex.UserMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -150,5 +175,6 @@ public class GeminiGradingServiceTests
 
         Assert.Equal(3, attempt); // 1 initial attempt + 2 retries
         Assert.Contains("high demand", ex.Message);
+        Assert.Equal("The AI grading service is temporarily overloaded. Please try again in a moment.", ex.UserMessage);
     }
 }

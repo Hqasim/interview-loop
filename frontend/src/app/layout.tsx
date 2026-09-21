@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { Toaster } from "react-hot-toast";
 import "./globals.css";
 import StoreProvider from "@/components/StoreProvider";
 
@@ -26,6 +27,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: "#111827",
+              color: "#e5e7eb",
+              border: "1px solid rgba(255,255,255,0.1)",
+              fontSize: "0.875rem",
+              maxWidth: "24rem",
+            },
+            error: { iconTheme: { primary: "#fb7185", secondary: "#111827" } },
+            success: { iconTheme: { primary: "#34d399", secondary: "#111827" } },
+          }}
+        />
         <StoreProvider>
           <header className="border-b border-white/10 bg-black/20 backdrop-blur">
             <nav className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">

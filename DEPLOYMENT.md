@@ -91,7 +91,7 @@ Set the Lambda's environment variables (console or `aws lambda update-function-c
 
 - `ConnectionStrings__Postgres` = your Neon connection string
 - `Gemini__ApiKey` = your Gemini key
-- `Gemini__Model` = `gemini-3.6-flash` (or whatever you tested with)
+- `Gemini__Model` = `gemini-3.5-flash-lite` (or whatever you tested with)
 - `Cors__AllowedOrigins__0` = your Amplify frontend URL (add this after step 6, once you know it)
 
 ## 6. Deploy the frontend to Amplify

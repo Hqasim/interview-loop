@@ -1,12 +1,18 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import Editor from "@monaco-editor/react";
+import toast from "react-hot-toast";
 import { useGetAttemptByIdQuery } from "@/lib/api";
 import FeedbackPanel from "@/components/FeedbackPanel";
 
 export default function AttemptDetailView({ attemptId }: { attemptId: number }) {
   const { data: attempt, isLoading, isError } = useGetAttemptByIdQuery(attemptId);
+
+  useEffect(() => {
+    if (isError) toast.error("Couldn't load this attempt. Is the backend running?");
+  }, [isError]);
 
   if (isLoading) return <p className="text-white/50">Loading&hellip;</p>;
   if (isError || !attempt)

@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 import { useGetHistoryQuery } from "@/lib/api";
 
 const verdictColor: Record<string, string> = {
@@ -11,6 +13,10 @@ const verdictColor: Record<string, string> = {
 
 export default function HistoryPage() {
   const { data: attempts, isLoading, isError } = useGetHistoryQuery();
+
+  useEffect(() => {
+    if (isError) toast.error("Couldn't reach the API. Is the backend running?");
+  }, [isError]);
 
   return (
     <div>

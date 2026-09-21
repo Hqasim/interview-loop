@@ -1,11 +1,17 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 import { useGetPromptsQuery } from "@/lib/api";
 import DifficultyBadge from "@/components/DifficultyBadge";
 
 export default function HomePage() {
   const { data: prompts, isLoading, isError } = useGetPromptsQuery();
+
+  useEffect(() => {
+    if (isError) toast.error("Couldn't reach the API. Is the backend running?");
+  }, [isError]);
 
   return (
     <div>
