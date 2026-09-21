@@ -113,4 +113,42 @@ public class GeminiGradingServiceTests
         await Assert.ThrowsAsync<GradingException>(
             () => service.GradeAsync("Two Sum", "desc", "code", "javascript"));
     }
+
+    private static HttpResponseMessage HighDemandResponse() =>
+        JsonResponse(HttpStatusCode.ServiceUnavailable, new { error = new { message = "high demand" } });
+
+    [Fact]
+    public async Task GradeAsync_TransientServiceUnavailable_RetriesAndSucceeds()
+    {
+        // Reproduces the real flakiness seen against the live API: gemini-3.6-flash occasionally
+        // 503s with "currently experiencing high demand" and recovers within a couple of seconds.
+        var attempt = 0;
+        var service = CreateService(_ =>
+        {
+            attempt++;
+            return attempt < 3 ? HighDemandResponse() : JsonResponse(HttpStatusCode.OK, CandidateResponse((FeedbackJson, false)));
+        });
+
+        var feedback = await service.GradeAsync("Two Sum", "desc", "code", "javascript");
+
+        Assert.Equal(3, attempt);
+        Assert.Equal(72, feedback.Score);
+    }
+
+    [Fact]
+    public async Task GradeAsync_ServiceUnavailablePersists_ThrowsAfterExhaustingRetries()
+    {
+        var attempt = 0;
+        var service = CreateService(_ =>
+        {
+            attempt++;
+            return HighDemandResponse();
+        });
+
+        var ex = await Assert.ThrowsAsync<GradingException>(
+            () => service.GradeAsync("Two Sum", "desc", "code", "javascript"));
+
+        Assert.Equal(3, attempt); // 1 initial attempt + 2 retries
+        Assert.Contains("high demand", ex.Message);
+    }
 }

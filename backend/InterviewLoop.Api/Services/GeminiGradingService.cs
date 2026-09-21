@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using InterviewLoop.Api.Dtos;
@@ -43,7 +44,7 @@ public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Op
         );
 
         var url = $"models/{_options.Model}:generateContent?key={_options.ApiKey}";
-        using var response = await httpClient.PostAsJsonAsync(url, requestBody, JsonOptions, ct);
+        using var response = await SendWithRetryAsync(url, requestBody, ct);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -75,6 +76,30 @@ public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Op
         {
             logger.LogError(ex, "Could not parse Gemini's response body as feedback JSON: {Text}", text);
             throw new GradingException("Could not parse the AI grading response.");
+        }
+    }
+
+    // Gemini's "model is currently experiencing high demand" 503 is common and self-resolves
+    // within a couple of seconds - worth a couple of quick retries before giving up.
+    private static readonly TimeSpan[] RetryDelays = [TimeSpan.FromMilliseconds(600), TimeSpan.FromSeconds(2)];
+
+    private async Task<HttpResponseMessage> SendWithRetryAsync(string url, GeminiRequest requestBody, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var response = await httpClient.PostAsJsonAsync(url, requestBody, JsonOptions, ct);
+
+            var isTransient = response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.TooManyRequests;
+            if (!isTransient || attempt >= RetryDelays.Length)
+            {
+                return response;
+            }
+
+            logger.LogWarning(
+                "Gemini API returned {StatusCode} (attempt {Attempt}/{Max}) - retrying...",
+                response.StatusCode, attempt + 1, RetryDelays.Length + 1);
+            response.Dispose();
+            await Task.Delay(RetryDelays[attempt], ct);
         }
     }
 
