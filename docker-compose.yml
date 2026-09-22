@@ -1,15 +1,21 @@
+# Local development database only - production uses Neon's managed serverless Postgres
+# (see DEPLOYMENT.md), not this container. Start with `docker compose up -d` before `dotnet run`.
 services:
   postgres:
+    # Alpine variant: smaller image, faster pulls - no functional difference for local dev.
     image: postgres:16-alpine
     container_name: interviewloop-postgres
     restart: unless-stopped
     environment:
+      # Local-only credentials, not secrets - never used outside this container on localhost.
       POSTGRES_DB: interviewloop
       POSTGRES_USER: interviewloop
       POSTGRES_PASSWORD: interviewloop
     ports:
       - "5432:5432"
     volumes:
+      # Named volume so data (seeded prompts, submitted attempts) survives `docker compose down`
+      # and container restarts - only `docker compose down -v` wipes it.
       - interviewloop-postgres-data:/var/lib/postgresql/data
 
 volumes:

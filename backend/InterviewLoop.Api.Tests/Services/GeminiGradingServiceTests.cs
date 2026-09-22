@@ -9,6 +9,12 @@ using Xunit;
 
 namespace InterviewLoop.Api.Tests.Services;
 
+/// <summary>
+/// Unit tests for GeminiGradingService's response parsing and error handling, isolated from the
+/// rest of the app via FakeHttpMessageHandler - no real network call, no ASP.NET Core host.
+/// Several of these are direct regressions for real failures hit against the live API during
+/// development (see each test's comment for which bug it pins down).
+/// </summary>
 public class GeminiGradingServiceTests
 {
     private static GeminiGradingService CreateService(Func<HttpRequestMessage, HttpResponseMessage> respond, string model = "gemini-3.5-flash-lite")

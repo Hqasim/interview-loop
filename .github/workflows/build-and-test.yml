@@ -1,0 +1,88 @@
+# Continuous Integration: build and test both halves of the stack on every push/PR.
+#
+# This is a "fail fast" gate, not a deploy pipeline: it proves the backend compiles and its
+# test suite passes, and that the frontend type-checks, lints, and produces a production build.
+# It intentionally does NOT deploy anything - see DEPLOYMENT.md for how releases actually reach
+# AWS (Lambda + Amplify). Keeping CI and CD separate means a broken deploy credential can never
+# block a PR from being validated, and a passing PR never silently ships to production.
+name: Build and Test
+
+on:
+  # Validate every push to the trunk branches...
+  push:
+    branches: [main, master]
+  # ...and every pull request targeting them, so problems surface before merge, not after.
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # -----------------------------------------------------------------------------------------
+  # Backend: .NET 10 Web API + its xUnit test suite.
+  # -----------------------------------------------------------------------------------------
+  backend:
+    name: Backend (.NET build + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # The solution file lives at the repo root and references both the API project and its
+        # test project, so a single restore/build/test pass covers both.
+        working-directory: .
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          # Pinned to the major version the project targets (net10.0) rather than "latest", so a
+          # future .NET release can't silently change what CI validates against.
+          dotnet-version: "10.0.x"
+
+      - name: Restore NuGet packages
+        run: dotnet restore InterviewLoop.slnx
+
+      - name: Build (Release configuration)
+        # --no-restore reuses the previous step's restore instead of doing it again, and building
+        # in Release here mirrors what actually ships (Debug-only bugs are rare but real).
+        run: dotnet build InterviewLoop.slnx --no-restore --configuration Release
+
+      - name: Run xUnit test suite
+        # --no-build reuses the previous step's build output. Tests run against EF Core's
+        # InMemory provider and a fake HTTP handler for Gemini (see ApiTestFactory.cs and
+        # GeminiGradingServiceTests.cs) - no live Postgres or Gemini API key needed in CI.
+        run: dotnet test InterviewLoop.slnx --no-build --configuration Release
+
+  # -----------------------------------------------------------------------------------------
+  # Frontend: Next.js app - type checking, linting, and a production build.
+  # -----------------------------------------------------------------------------------------
+  frontend:
+    name: Frontend (Next.js lint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          # Caches ~/.npm keyed on package-lock.json so unchanged dependency trees restore
+          # instantly instead of re-downloading every run.
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies (exact versions from the lockfile)
+        # `npm ci` (not `npm install`) fails if package-lock.json is out of sync with
+        # package.json, and never mutates the lockfile - the right choice for CI reproducibility.
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build (type-checks + compiles all routes)
+        # `next build` runs the TypeScript compiler and prerenders every route, so this step
+        # doubles as a full type-check across the app, not just a bundler smoke test.
+        run: npm run build

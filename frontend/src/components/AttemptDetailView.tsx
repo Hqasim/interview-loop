@@ -7,6 +7,11 @@ import toast from "react-hot-toast";
 import { useGetAttemptByIdQuery } from "@/lib/api";
 import FeedbackPanel from "@/components/FeedbackPanel";
 
+/**
+ * Read-only replay of a past attempt: the exact code that was submitted (Monaco in
+ * `readOnly` mode) plus its feedback, reusing FeedbackPanel so it looks identical to the
+ * just-submitted view in PromptWorkspace.
+ */
 export default function AttemptDetailView({ attemptId }: { attemptId: number }) {
   const { data: attempt, isLoading, isError } = useGetAttemptByIdQuery(attemptId);
 

@@ -11,6 +11,8 @@ const verdictColor: Record<string, string> = {
   Incorrect: "text-rose-400",
 };
 
+/** History route ("/history") - every past attempt, most recent first, linking to the
+ * read-only detail view at /history/[id]. */
 export default function HistoryPage() {
   const { data: attempts, isLoading, isError } = useGetHistoryQuery();
 

@@ -1,3 +1,5 @@
+/** Color-coded pill for a prompt's difficulty. Falls back to a neutral style for any value
+ * outside the three known difficulties, so an unexpected string never breaks rendering. */
 const styles: Record<string, string> = {
   Easy: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/30",
   Medium: "bg-amber-500/10 text-amber-400 ring-amber-500/30",

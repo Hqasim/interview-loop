@@ -5,19 +5,36 @@ using InterviewLoop.Api.Dtos;
 
 namespace InterviewLoop.Api.Services;
 
+/// <summary>Bound from the "Gemini" config section (appsettings.json / user-secrets / the
+/// Lambda's env vars) - see <see cref="SectionName"/>.</summary>
 public class GeminiOptions
 {
     public const string SectionName = "Gemini";
     public string ApiKey { get; set; } = "";
+
+    /// <summary>Defaults to a current, generally-available Gemini model. Google periodically
+    /// retires older model IDs (this project has hit that twice already - see git history) so
+    /// this is deliberately a plain string, not a compiled-in enum, and is fully overridable via
+    /// config without a code change or redeploy.</summary>
     public string Model { get; set; } = "gemini-3.5-flash-lite";
 }
 
+/// <summary>
+/// Calls the Gemini API's <c>generateContent</c> endpoint with a JSON response schema that
+/// constrains the model's output to exactly the shape of <see cref="AttemptFeedbackDto"/>, so
+/// there's no free-text parsing of the AI's answer beyond a straight JSON deserialize.
+/// Registered only when a real API key is configured (see Program.cs) - see
+/// <see cref="FakeGradingService"/> for the no-key fallback.
+/// </summary>
 public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Options.IOptions<GeminiOptions> options, ILogger<GeminiGradingService> logger) : IGradingService
 {
     private readonly GeminiOptions _options = options.Value;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Sends the prompt + candidate's code to Gemini and returns structured feedback.
+    /// Throws <see cref="GradingException"/> (never a raw HTTP/JSON exception) on any failure -
+    /// see the switch below for how each upstream failure mode maps to a user-safe message.</summary>
     public async Task<AttemptFeedbackDto> GradeAsync(string promptTitle, string promptDescription, string code, string language, CancellationToken ct = default)
     {
         var systemPrompt = $$"""
@@ -97,6 +114,8 @@ public class GeminiGradingService(HttpClient httpClient, Microsoft.Extensions.Op
     // within a couple of seconds - worth a couple of quick retries before giving up.
     private static readonly TimeSpan[] RetryDelays = [TimeSpan.FromMilliseconds(600), TimeSpan.FromSeconds(2)];
 
+    /// <summary>POSTs to Gemini, retrying with backoff on 503/429 (transient) responses only -
+    /// every other status is returned immediately for the caller to handle.</summary>
     private async Task<HttpResponseMessage> SendWithRetryAsync(string url, GeminiRequest requestBody, CancellationToken ct)
     {
         for (var attempt = 0; ; attempt++)

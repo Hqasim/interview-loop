@@ -5,6 +5,10 @@ using Xunit;
 
 namespace InterviewLoop.Api.Tests;
 
+/// <summary>
+/// End-to-end tests against the real ASP.NET Core pipeline (routing, model binding, EF Core
+/// query translation) via ApiTestFactory - not unit tests of the controller class in isolation.
+/// </summary>
 public class PromptsControllerTests
 {
     [Fact]

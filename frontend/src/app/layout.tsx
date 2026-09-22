@@ -20,6 +20,11 @@ export const metadata: Metadata = {
   description: "AI-graded mock coding interviews",
 };
 
+/**
+ * Root layout - shared shell (nav, footer, toast host, Redux provider) for every route. The
+ * Toaster lives outside StoreProvider since react-hot-toast manages its own internal state and
+ * has no dependency on the app's Redux store.
+ */
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html

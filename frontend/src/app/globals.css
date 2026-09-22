@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+/* Fixed dark theme (no light-mode variant) - this is a code editor-centric tool, and a
+   permanent dark palette keeps it visually consistent with Monaco's vs-dark editor theme. */
 :root {
   --background: #0b0d12;
   --foreground: #e5e7eb;

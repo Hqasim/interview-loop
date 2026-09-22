@@ -22,6 +22,12 @@ const SUBMIT_COOLDOWN_MS = 3000;
 const SLOW_RESPONSE_WARNING_MS = 5000;
 const SLOW_TOAST_ID = "grading-slow";
 
+/**
+ * The core "solve a prompt" screen: Monaco editor, language picker, Reset/Reformat/Submit
+ * controls, and the resulting AI feedback. Editor content is controlled Redux state (see
+ * lib/editorSlice.ts) rather than local component state, specifically so a draft survives
+ * navigating away and back to the same prompt.
+ */
 export default function PromptWorkspace({ promptId }: { promptId: number }) {
   const dispatch = useAppDispatch();
   const { data: prompt, isLoading, isError } = useGetPromptByIdQuery(promptId);
@@ -59,6 +65,10 @@ export default function PromptWorkspace({ promptId }: { promptId: number }) {
     setFeedback(null);
   };
 
+  // Monaco's built-in formatter - works well for javascript/typescript (bundled language
+  // service); for python/csharp/java it may no-op silently since Monaco ships no formatter for
+  // them out of the box. Not wired to a full formatter toolchain (e.g. Prettier) to keep the
+  // client bundle small.
   const handleReformat = () => {
     editorRef.current?.getAction("editor.action.formatDocument")?.run();
   };

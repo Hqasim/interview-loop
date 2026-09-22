@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { useGetPromptsQuery } from "@/lib/api";
 import DifficultyBadge from "@/components/DifficultyBadge";
 
+/** Home route ("/") - the prompt catalog. Each card links to /prompts/[id]. */
 export default function HomePage() {
   const { data: prompts, isLoading, isError } = useGetPromptsQuery();
 

@@ -2,8 +2,15 @@ using InterviewLoop.Api.Models;
 
 namespace InterviewLoop.Api.Data;
 
+/// <summary>
+/// Seeds the fixed catalog of 10 practice prompts on first run against an empty database. This
+/// is the only place prompts are created - there's no admin UI or seed-data API, since the
+/// prompt set is a curated, version-controlled part of the app rather than user-generated content.
+/// </summary>
 public static class SeedData
 {
+    /// <summary>Idempotent: a no-op if any prompt already exists, so it's safe to call on
+    /// every startup (see Program.cs) without duplicating rows on a redeploy.</summary>
     public static void EnsureSeeded(InterviewLoopDbContext db)
     {
         if (db.Prompts.Any()) return;

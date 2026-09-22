@@ -1,3 +1,13 @@
+/**
+ * RTK Query API slice - the single source of truth for every network call this app makes.
+ * Each hook below (useGetPromptsQuery, etc.) handles caching, loading/error state, and
+ * refetching automatically; components never call fetch() directly. `submitAttempt`
+ * invalidating the "Attempts" tag is what makes the history list refresh itself after a submit.
+ *
+ * These types mirror the backend's DTOs (backend/InterviewLoop.Api/Dtos) field-for-field -
+ * there's no shared codegen between the two projects, so keep them in sync by hand if either
+ * side's shape changes.
+ */
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
 export interface PromptSummary {
@@ -45,6 +55,9 @@ export interface SubmitAttemptRequest {
   language: string;
 }
 
+// NEXT_PUBLIC_* vars are inlined into the client bundle at build time (see frontend/.env.local
+// for local dev, and the Amplify app's environment variables for production) - the localhost
+// fallback here only ever applies if that build-time value was somehow missing.
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5080/api";
 

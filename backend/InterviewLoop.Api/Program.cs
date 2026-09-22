@@ -1,3 +1,10 @@
+// Application entry point and composition root.
+//
+// This project runs identically in two environments from the same code path:
+//   - Locally, as a normal Kestrel web server (`dotnet run`).
+//   - In production, as an AWS Lambda function behind a Function URL (see DEPLOYMENT.md).
+// The `isLambda` checks below are the only places that branch on which environment is active;
+// everything else (routing, DI, middleware) is identical in both.
 using Amazon.Lambda.AspNetCoreServer.Hosting;
 using InterviewLoop.Api.Data;
 using InterviewLoop.Api.Services;
@@ -5,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// AWS sets this environment variable automatically inside a Lambda execution environment; it's
+// never present locally, which is what lets the same binary detect where it's running.
 var isLambda = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AWS_LAMBDA_FUNCTION_NAME"));
 
 // No-ops outside Lambda. Lambda Function URLs use the same payload format as
@@ -16,11 +25,16 @@ builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// PostgreSQL via Npgsql - the same connection string setting points at a local Docker container
+// in development and a Neon serverless instance in production (see appsettings.json / DEPLOYMENT.md).
 builder.Services.AddDbContext<InterviewLoopDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
 builder.Services.Configure<GeminiOptions>(builder.Configuration.GetSection(GeminiOptions.SectionName));
 
+// Grading backend is chosen at startup, not per-request: a real Gemini API key wires up the real
+// service; an empty one (e.g. a fresh clone with no key configured yet) falls back to a fake
+// that returns clearly-labeled placeholder feedback, so the whole app is clickable out of the box.
 var geminiApiKey = builder.Configuration.GetSection(GeminiOptions.SectionName)["ApiKey"];
 if (!string.IsNullOrWhiteSpace(geminiApiKey))
 {
@@ -35,6 +49,8 @@ else
     builder.Services.AddSingleton<IGradingService, FakeGradingService>();
 }
 
+// Only the configured frontend origin(s) may call this API from a browser - see
+// Cors:AllowedOrigins in appsettings.json (localhost:3000 locally, the Amplify URL in production).
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
 {
@@ -42,6 +58,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod());
 });
 
+// Server-side throttle for the grading endpoint - see RateLimiting.cs for why this exists
+// instead of (or alongside) a client-side cooldown.
 builder.Services.AddGradingRateLimiter();
 
 var app = builder.Build();
@@ -55,6 +73,9 @@ else
     app.Logger.LogWarning("Grading service: DEMO MODE (no Gemini:ApiKey configured) - attempts will get placeholder feedback.");
 }
 
+// Apply any pending EF Core migrations and seed the practice prompts on startup, so a fresh
+// database (local Docker container or a brand-new Neon project) is immediately usable with no
+// manual migration step.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<InterviewLoopDbContext>();
@@ -67,6 +88,7 @@ using (var scope = app.Services.CreateScope())
     SeedData.EnsureSeeded(db);
 }
 
+// Swagger/OpenAPI UI only in Development - never exposed on the public production API.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

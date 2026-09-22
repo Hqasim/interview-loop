@@ -6,6 +6,12 @@ using Xunit;
 
 namespace InterviewLoop.Api.Tests;
 
+/// <summary>
+/// End-to-end tests for the submit/grade/history flow - the full HTTP pipeline via
+/// ApiTestFactory, including the rate limiter middleware and the real EF Core provider swap.
+/// Covers both the happy path and every failure mode the controller maps to a specific status
+/// code (400/404/429/502).
+/// </summary>
 public class AttemptsControllerTests
 {
     private static SubmitAttemptRequest ValidRequest(int promptId = 1) =>

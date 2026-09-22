@@ -6,6 +6,10 @@ const verdictStyles: Record<AttemptFeedback["verdict"], string> = {
   Incorrect: "text-rose-400 bg-rose-500/10 ring-rose-500/30",
 };
 
+/**
+ * Renders one AttemptFeedback object - shared by the just-submitted view (PromptWorkspace) and
+ * the history detail view (AttemptDetailView), so the two surfaces stay visually identical.
+ */
 export default function FeedbackPanel({ feedback }: { feedback: AttemptFeedback }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">

@@ -1,3 +1,7 @@
+# AWS Amplify Hosting build spec for the Next.js frontend. This repo is a monorepo (backend +
+# frontend side by side), so `appRoot: frontend` tells Amplify which subdirectory to actually
+# build - without it, Amplify would try to build from the repo root and fail to find package.json.
+# See DEPLOYMENT.md section 6 for the console steps that wire this file up to a live deployment.
 version: 1
 applications:
   - appRoot: frontend
@@ -5,15 +9,24 @@ applications:
       phases:
         preBuild:
           commands:
+            # npm ci (not npm install): fails on a lockfile/package.json mismatch instead of
+            # silently resolving new versions - the right choice for a reproducible build.
             - npm ci
         build:
           commands:
+            # `next build` both compiles the app and prerenders/labels each route as static or
+            # server-rendered - Amplify reads that output to serve /prompts/[id] and
+            # /history/[id] with SSR while serving / and /history as static.
             - npm run build
       artifacts:
+        # Next.js's own build output directory - Amplify's Next.js-aware hosting knows how to
+        # serve this correctly (SSR routes included), unlike a plain static file host.
         baseDirectory: .next
         files:
           - "**/*"
       cache:
+        # Cached between builds so an unchanged dependency tree / unchanged Next.js internals
+        # don't get re-downloaded or fully recompiled on every deploy.
         paths:
           - node_modules/**/*
           - .next/cache/**/*
