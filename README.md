@@ -1,7 +1,5 @@
 # InterviewLoop
 
-**[Live demo →](https://master.d9ozh3inwy25s.amplifyapp.com)**
-
 [![Build and Test](https://github.com/Hqasim/interview-loop/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/Hqasim/interview-loop/actions/workflows/build-and-test.yml)
 ![Next.js](https://img.shields.io/badge/Next.js-16.3-black?logo=next.js&logoColor=white)
 ![React](https://img.shields.io/badge/React-19.2-61DAFB?logo=react&logoColor=black)
@@ -17,12 +15,15 @@ structured AI feedback on correctness, complexity, and clarity — plus a histor
 Built end-to-end (frontend, backend, database, AI integration, CI, cloud deployment) as a
 full-stack portfolio project.
 
+<p align="center">
+  <a href="https://master.d9ozh3inwy25s.amplifyapp.com">
+    <img src="https://img.shields.io/badge/🚀_View_Live_Demo-22c55e?style=for-the-badge&logoColor=white" alt="View Live Demo" />
+  </a>
+</p>
+
 ---
 
 ## Screenshots
-
-*(Screenshots live in [`frontend/screenshots/`](./frontend/screenshots) — see that folder's
-README for exactly which shots are expected; the images below will render once they're added.)*
 
 | Home | Solving a prompt |
 |---|---|
