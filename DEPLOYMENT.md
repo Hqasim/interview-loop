@@ -344,7 +344,80 @@ Open the Amplify URL and walk through the full feature set we built:
 That's the whole $0-cost pipeline validated end-to-end — this is the state you'd share with a
 recruiter.
 
-## 9. Tearing it down (if you ever want to)
+## 9. Rotating credentials
+
+If you ever need to replace the Gemini key or Neon connection string (a leak, a routine
+rotation, whatever), the source of truth locally is your `dotnet user-secrets` store, and the
+source of truth in production is the Lambda's environment variables. Update both, in this order:
+
+### 9.1 Get the new value into local user-secrets first
+
+Same commands as the original setup (§2 for Gemini, §3 for Neon) — `dotnet user-secrets set
+"Gemini:ApiKey" "<new-key>"` or the connection-string conversion script from §3. Then run
+`dotnet run` locally and confirm it starts cleanly before touching production — it's much
+cheaper to catch a typo locally than on the live site.
+
+### 9.2 Push the new value(s) to Lambda
+
+**Important:** `aws lambda update-function-configuration --environment` *replaces the entire
+variable set* — it doesn't merge. If you only pass the one variable you're rotating, you'll wipe
+out the other three. Always read the current set first, merge in the new value, then write the
+whole merged set back.
+
+Run this from `backend/InterviewLoop.Api` (adjust the `UserSecretsId` path if yours differs — it's
+the `<UserSecretsId>` value in `InterviewLoop.Api.csproj`):
+
+```powershell
+# 1. Make sure the AWS CLI is reachable in this shell
+aws --version
+# If that fails with "not recognized", the CLI is installed but not on this shell's PATH yet -
+# find it and add it for this session:
+#   $env:PATH += ";C:\Users\<you>\AppData\Local\Programs\Amazon\AWSCLIV2\"
+
+# 2. Read your local secrets (never printed - only assigned to a variable)
+$secretsPath = "$env:APPDATA\Microsoft\UserSecrets\<your-UserSecretsId>\secrets.json"
+$secrets = Get-Content $secretsPath -Raw | ConvertFrom-Json
+
+# 3. Read the CURRENT Lambda env vars (also never printed - piped straight into a variable)
+$currentVars = (aws lambda get-function-configuration --function-name interview-loop-api `
+  --query "Environment.Variables" --output json | ConvertFrom-Json)
+
+# 4. Merge: start from what's live, overwrite with whatever changed locally
+$merged = @{}
+$currentVars.PSObject.Properties | ForEach-Object { $merged[$_.Name] = $_.Value }
+$merged["Gemini__ApiKey"] = $secrets.'Gemini:ApiKey'
+$merged["ConnectionStrings__Postgres"] = $secrets.'ConnectionStrings:Postgres'
+# (leave Gemini__Model and Cors__AllowedOrigins__0 untouched - already in $merged from step 4)
+
+# 5. Write to a BOM-free temp file (a UTF-8 BOM breaks the AWS CLI's JSON parser and - worse -
+#    makes it echo the whole file, secrets included, into the error message)
+$envConfig = @{ Variables = $merged } | ConvertTo-Json -Compress
+$tempFile = "$env:TEMP\lambda-env-config.json"
+[System.IO.File]::WriteAllText($tempFile, $envConfig, [System.Text.UTF8Encoding]::new($false))
+
+# 6. Push it, suppressing output (so a failure can't dump secrets to your terminal either)
+$null = aws lambda update-function-configuration --function-name interview-loop-api `
+  --environment "file://$tempFile" 2>$null
+$exitCode = $LASTEXITCODE
+Remove-Item $tempFile -Force
+if ($exitCode -eq 0) { Write-Output "SUCCESS" } else { Write-Output "FAILED exit code $exitCode" }
+```
+
+### 9.3 Verify without exposing the values
+
+```powershell
+aws lambda get-function-configuration --function-name interview-loop-api --query "keys(Environment.Variables)"
+```
+This should print the four variable **names** (`Gemini__ApiKey`, `ConnectionStrings__Postgres`,
+`Gemini__Model`, `Cors__AllowedOrigins__0`) — never their values. Deliberately avoid running
+`get-function-configuration` without a `--query "keys(...)"` filter, since the unfiltered output
+includes the actual values in plaintext.
+
+Changes take effect on the next invocation automatically — no code redeploy needed. Do a real
+smoke test against the live URL afterward (submit an attempt, confirm real Gemini feedback) to
+confirm the rotated credentials actually work end to end.
+
+## 10. Tearing it down (if you ever want to)
 
 Since this is a portfolio project rather than something with ongoing users, it's fine to leave
 it running indefinitely (it's genuinely $0 at this traffic level) — but if you ever want to fully
