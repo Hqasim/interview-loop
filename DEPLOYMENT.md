@@ -201,10 +201,17 @@ aws lambda create-function-url-config \
 
 aws lambda add-permission \
   --function-name interview-loop-api \
+  --statement-id FunctionURLAllowPublicAccess \
   --action lambda:InvokeFunctionUrl \
   --principal "*" \
-  --function-url-auth-type NONE \
-  --statement-id FunctionURLAllowPublicAccess
+  --function-url-auth-type NONE
+
+aws lambda add-permission \
+  --function-name interview-loop-api \
+  --statement-id FunctionURLInvokeAllowPublicAccess \
+  --action lambda:InvokeFunction \
+  --principal "*" \
+  --invoked-via-function-url
 ```
 
 What each piece does:
@@ -213,10 +220,15 @@ What each piece does:
   for a public portfolio demo (recruiters need to hit it without credentials), and it's exactly
   what the rate limiter we built earlier (`POST /api/attempts`, 1 request/3s per IP) is there
   to protect against abuse of.
-- `add-permission ... InvokeFunctionUrl`: a commonly-missed second step — without this, the
-  Function URL returns `403 Forbidden` even with `auth-type NONE`, because Lambda's *resource
-  policy* (separate from the Function URL's auth type) still needs to explicitly allow the
-  public principal (`*`) to invoke it.
+- **Two separate `add-permission` calls are required**, not one — this is a commonly-missed
+  gotcha, and as of an AWS policy change in October 2025 it's stricter than it used to be:
+  without *both* of these, the Function URL returns `403 Forbidden` even with `auth-type NONE`,
+  because Lambda's *resource policy* (separate from the Function URL's auth type) must explicitly
+  grant both `lambda:InvokeFunctionUrl` (permission to hit the URL at all) and
+  `lambda:InvokeFunction` (permission to actually invoke the function code) to the public
+  principal (`*`). Missing either one produces the exact same 403, so if you still get one after
+  running both commands, double check neither was skipped (`aws lambda get-policy --function-name
+  interview-loop-api` shows both statements when it's set up correctly).
 
 The first command's output includes a `FunctionUrl` field — that's your backend's public base
 URL, e.g. `https://abc123xyz.lambda-url.us-east-1.on.aws/`. Test it directly before touching the

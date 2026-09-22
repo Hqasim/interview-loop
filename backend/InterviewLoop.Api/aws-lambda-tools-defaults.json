@@ -6,7 +6,7 @@
   "profile": "",
   "region": "us-east-1",
   "configuration": "Release",
-  "function-runtime": "dotnet8",
+  "function-runtime": "dotnet10",
   "function-memory-size": 512,
   "function-timeout": 30,
   "function-handler": "InterviewLoop.Api",
