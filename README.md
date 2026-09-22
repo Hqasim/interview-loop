@@ -1,5 +1,7 @@
 # InterviewLoop
 
+**[Live demo →](https://master.d9ozh3inwy25s.amplifyapp.com)**
+
 AI-graded mock coding interviews. Pick a prompt, solve it in an in-browser editor, and get
 structured AI feedback on correctness, complexity, and clarity — plus a history of past attempts.
 
@@ -66,8 +68,7 @@ against an in-memory database, without needing Postgres or a real Gemini API key
 
 ## Deployment
 
-Target is a $0-cost deployment: Next.js on AWS Amplify Hosting, the .NET API on AWS Lambda via
-a Function URL, and PostgreSQL on Neon's always-free tier — all within permanently-free usage
-tiers rather than a 12-month trial. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the step-by-step
-checklist (account setup steps only you can do, plus the exact commands to run once you have
-credentials).
+Deployed at $0 infrastructure cost: Next.js on AWS Amplify Hosting, the .NET API on AWS Lambda
+behind a Function URL, and PostgreSQL on Neon's always-free tier — all within permanently-free
+usage tiers rather than a 12-month trial. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full
+walkthrough of how it's wired together.
